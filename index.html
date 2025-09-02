@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ETH Wallet Interface • Web3.js</title>
+    <script src="https://unpkg.com/web3@1.10.4/dist/web3.min.js"></script>
+    <style>
+      :root {
+        --pad: 14px;
+        --radius: 14px;
+        --gap: 12px;
+      }
+      * {
+        box-sizing: border-box;
+        font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto,
+          Arial;
+      }
+      body {
+        margin: 0;
+        padding: 32px;
+        background: #0b1020;
+        color: #eaeef7;
+      }
+      .app {
+        max-width: 720px;
+        margin: 0 auto;
+      }
+      .card {
+        background: #121a34;
+        border: 1px solid #233055;
+        padding: var(--pad);
+        border-radius: var(--radius);
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+      }
+      h1 {
+        font-size: 22px;
+        margin: 0 0 8px;
+      }
+      p.sub {
+        margin: 0 0 16px;
+        opacity: 0.8;
+      }
+      button,
+      input {
+        height: 44px;
+        border-radius: 10px;
+        border: 1px solid #2e3b66;
+        background: #0f1730;
+        color: #eaeef7;
+        padding: 0 12px;
+      }
+      button {
+        cursor: pointer;
+        transition: 0.2s transform ease;
+      }
+      button:hover {
+        transform: translateY(-1px);
+      }
+      .row {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: var(--gap);
+      }
+      .stack {
+        display: grid;
+        gap: var(--gap);
+      }
+      .muted {
+        opacity: 0.8;
+        font-size: 14px;
+      }
+      .mono {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        word-break: break-all;
+      }
+      .ok {
+        color: #77ff9c;
+      }
+      .warn {
+        color: #ffd166;
+      }
+      .err {
+        color: #ff8fa3;
+      }
+      .badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        background: #0c1330;
+        border: 1px solid #26346a;
+        padding: 6px 10px;
+        border-radius: 999px;
+      }
+      label {
+        font-size: 13px;
+        opacity: 0.85;
+      }
+      .field {
+        display: grid;
+        gap: 6px;
+      }
+      .footer {
+        text-align: center;
+        opacity: 0.6;
+        padding-top: 16px;
+        font-size: 12px;
+      }
+      .grid-3 {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: var(--gap);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="app stack">
+      <div class="card">
+        <h1>
+          ETH Wallet Interface <span class="badge">Web3.js + MetaMask</span>
+        </h1>
+        <p class="sub">
+          Connect your wallet, view balance, copy your address, and send ETH
+          (e.g., on <span class="mono">Sepolia</span> testnet).
+        </p>
+        <div class="stack" id="status"></div>
+        <div class="stack" style="margin-top: 12px">
+          <div class="row">
+            <button id="connectBtn">🔌 Connect Wallet</button>
+            <button id="switchSepoliaBtn">🌐 Switch to Sepolia</button>
+          </div>
+          <div class="grid-3">
+            <div class="field">
+              <label>Your Address</label>
+              <div class="mono" id="address">—</div>
+            </div>
+            <div class="field">
+              <label>Network</label>
+              <div class="mono" id="network">—</div>
+            </div>
+            <div class="field">
+              <label>Balance (ETH)</label>
+              <div class="mono" id="balance">—</div>
+            </div>
+          </div>
+          <div class="stack card" style="background: #0b1431">
+            <h2 style="margin: 0 0 6px; font-size: 18px">Send ETH</h2>
+            <div class="row">
+              <div class="field">
+                <label>Recipient Address</label>
+                <input id="to" placeholder="0x..." />
+              </div>
+              <div class="field">
+                <label>Amount (ETH)</label>
+                <input id="amount" placeholder="0.01" />
+              </div>
+            </div>
+            <div class="row">
+              <button id="sendBtn">🚀 Send</button>
+              <button id="refreshBtn">🔄 Refresh Balance</button>
+            </div>
+            <div class="muted">
+              Tip: Use Sepolia test ETH from a faucet to try safely.
+            </div>
+            <div
+              class="mono"
+              id="txOut"
+              style="margin-top: 8px; opacity: 0.9"
+            ></div>
+          </div>
+        </div>
+        <div class="footer">
+          For demo use only. Never paste seed phrases. Transactions are final.
+        </div>
+      </div>
+    </div>
+
+    <script>
+      const status = (msg, cls = "muted") => {
+        const el = document.getElementById("status");
+        const p = document.createElement("div");
+        p.className = cls;
+        p.textContent = msg;
+        el.prepend(p);
+      };
+
+      let web3;
+      let currentAccount = null;
+      let chainId = null;
+
+      function short(addr) {
+        if (!addr) return "—";
+        return addr.slice(0, 6) + "…" + addr.slice(-4);
+      }
+
+      async function ensureProvider() {
+        if (window.ethereum) {
+          // Construct Web3 from provider explicitly; MetaMask no longer injects window.web3
+          web3 = new Web3(window.ethereum);
+          return true;
+        } else {
+          status("No Ethereum provider found. Install MetaMask.", "err");
+          window.open("https://metamask.io/download", "_blank");
+          return false;
+        }
+      }
+
+      async function connect() {
+        if (!(await ensureProvider())) return;
+        try {
+          const accounts = await window.ethereum.request({
+            method: "eth_requestAccounts",
+          });
+          currentAccount = accounts[0];
+          chainId = await window.ethereum.request({ method: "eth_chainId" });
+          await refresh();
+          status("Connected: " + short(currentAccount), "ok");
+        } catch (e) {
+          status("Connect rejected: " + e.message, "err");
+        }
+      }
+
+      async function switchToSepolia() {
+        if (!(await ensureProvider())) return;
+        try {
+          await window.ethereum.request({
+            method: "wallet_switchEthereumChain",
+            params: [{ chainId: "0xaa36a7" }], // 11155111
+          });
+          chainId = "0xaa36a7";
+          await refresh();
+          status("Switched to Sepolia", "ok");
+        } catch (e) {
+          // If chain not added
+          if (e.code === 4902) {
+            try {
+              await window.ethereum.request({
+                method: "wallet_addEthereumChain",
+                params: [
+                  {
+                    chainId: "0xaa36a7",
+                    chainName: "Sepolia",
+                    nativeCurrency: {
+                      name: "SepoliaETH",
+                      symbol: "ETH",
+                      decimals: 18,
+                    },
+                    rpcUrls: ["https://sepolia.infura.io/v3/"],
+                    blockExplorerUrls: ["https://sepolia.etherscan.io"],
+                  },
+                ],
+              });
+              status("Sepolia added. Try switching again.", "warn");
+            } catch (addErr) {
+              status("Failed to add Sepolia: " + addErr.message, "err");
+            }
+          } else {
+            status("Switch failed: " + e.message, "err");
+          }
+        }
+      }
+
+      async function refresh() {
+        if (!web3) return;
+        const accounts = await window.ethereum.request({
+          method: "eth_accounts",
+        });
+        currentAccount = accounts && accounts[0] ? accounts[0] : currentAccount;
+        chainId = await window.ethereum.request({ method: "eth_chainId" });
+        document.getElementById("address").textContent = currentAccount
+          ? currentAccount
+          : "—";
+        document.getElementById("network").textContent =
+          chainId + (chainId === "0xaa36a7" ? " (Sepolia)" : "");
+        if (currentAccount) {
+          const balWei = await web3.eth.getBalance(currentAccount);
+          document.getElementById("balance").textContent = web3.utils.fromWei(
+            balWei,
+            "ether"
+          );
+        }
+      }
+
+      async function sendTx() {
+        const to = document.getElementById("to").value.trim();
+        const amount = document.getElementById("amount").value.trim();
+        if (!web3 || !currentAccount) {
+          status("Connect wallet first.", "warn");
+          return;
+        }
+        if (!web3.utils.isAddress(to)) {
+          status("Invalid recipient address.", "err");
+          return;
+        }
+        if (!amount || isNaN(Number(amount))) {
+          status("Enter a numeric amount in ETH.", "err");
+          return;
+        }
+        const value = web3.utils.toWei(amount, "ether");
+        try {
+          // Use provider-native send for better UX in MetaMask
+          const txHash = await window.ethereum.request({
+            method: "eth_sendTransaction",
+            params: [{ from: currentAccount, to, value }],
+          });
+          document.getElementById("txOut").textContent = `Tx sent: ${txHash}`;
+          status("Transaction sent. Waiting for confirmation…", "ok");
+        } catch (e) {
+          status("Transaction failed: " + e.message, "err");
+        }
+      }
+
+      // Events from wallet
+      if (window.ethereum) {
+        window.ethereum.on("accountsChanged", async (accs) => {
+          currentAccount = accs[0] || null;
+          await refresh();
+        });
+        window.ethereum.on("chainChanged", async (_cid) => {
+          chainId = _cid;
+          await refresh();
+        });
+      }
+
+      // Wire up UI
+      document.getElementById("connectBtn").addEventListener("click", connect);
+      document
+        .getElementById("switchSepoliaBtn")
+        .addEventListener("click", switchToSepolia);
+      document.getElementById("refreshBtn").addEventListener("click", refresh);
+      document.getElementById("sendBtn").addEventListener("click", sendTx);
+
+      // On load
+      (async () => {
+        if (await ensureProvider()) {
+          await refresh();
+        }
+      })();
+    </script>
+  </body>
+</html>
